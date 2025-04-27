@@ -1,5 +1,5 @@
 import sys
-from PySide6.QtWidgets import QApplication, QMainWindow, QFileDialog, QComboBox, QVBoxLayout, QWidget, QProgressBar, QLabel
+from PySide6.QtWidgets import QApplication, QMainWindow, QFileDialog, QComboBox, QVBoxLayout, QWidget, QProgressBar, QLabel, QPushButton
 from PySide6.QtCore import Qt, QThread
 from video_processor import VideoProcessor, VideoProcessingThread
 from PySide6.QtWidgets import QMessageBox
@@ -11,9 +11,11 @@ class VideoStylizationApp(QMainWindow):
         self.initUI()
         self.initMenu()
         self.initStyleSelector()
+        self.initProcessButton()
         self.initProgressBar()
         self.video_processor = None
         self.processing_thread = None
+        self.selected_video_path = None
 
     def initUI(self):
         self.setWindowTitle('视频风格化GUI程序')
@@ -34,6 +36,14 @@ class VideoStylizationApp(QMainWindow):
         layout.addWidget(self.style_selector, alignment=Qt.AlignTop)
         central_widget.setLayout(layout)
 
+    def initProcessButton(self):
+        self.process_button = QPushButton('开始处理视频', self)
+        self.process_button.clicked.connect(self.onProcessButtonClicked)
+        self.process_button.setEnabled(False)
+        central_widget = self.centralWidget()
+        layout = central_widget.layout()
+        layout.addWidget(self.process_button)
+
     def initProgressBar(self):
         self.progress_bar = QProgressBar()
         self.progress_label = QLabel('进度: 0%')
@@ -46,9 +56,16 @@ class VideoStylizationApp(QMainWindow):
         if file_dialog.exec(): 
             file_path = file_dialog.selectedFiles()[0]
             print('选择的视频文件路径:', file_path)
-            self.startVideoProcessing(file_path)
+            self.selected_video_path = file_path
+            self.process_button.setEnabled(True)
+
+    def onProcessButtonClicked(self):
+        if self.selected_video_path:
+            self.startVideoProcessing(self.selected_video_path)
 
     def startVideoProcessing(self, video_path):
+        self.style_selector.setEnabled(False)
+        self.process_button.setEnabled(False)
         style = self.style_selector.currentText()
         self.video_processor = VideoProcessor(video_path, style)
         self.processing_thread = VideoProcessingThread(self.video_processor)
@@ -67,6 +84,8 @@ class VideoStylizationApp(QMainWindow):
         self.progress_label.setText('进度: 100%')
         print('视频处理完成')
         QMessageBox.information(self, '处理完成', '视频处理已完成！')
+        self.style_selector.setEnabled(True)
+        self.process_button.setEnabled(True)
 
     def closeEvent(self, event):
         if self.processing_thread and self.processing_thread.isRunning():
