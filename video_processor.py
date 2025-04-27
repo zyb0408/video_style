@@ -1,6 +1,8 @@
 import cv2
 import json
 import numpy as np
+import os
+import subprocess
 from PySide6.QtCore import QObject, Signal, QThread
 from PySide6.QtGui import QImage
 
@@ -19,7 +21,41 @@ class VideoProcessor(QObject):
             'saturation': 0,
             'brightness': 0
         }
-        self.processed_video_path = None  # 添加属性保存处理后的视频路径
+        self.processed_video_path = None
+        self.temp_video_path = 'temp_processed_video.mp4'
+        self.temp_audio_path = 'temp_audio.aac'
+
+    def extract_audio(self, input_video, output_audio):
+        """提取视频中的音频"""
+        cmd = ['ffmpeg', '-i', input_video, '-vn', '-acodec', 'copy', output_audio, '-y']
+        try:
+            subprocess.run(cmd, check=True, capture_output=True)
+            return True
+        except subprocess.CalledProcessError:
+            print("音频提取失败")
+            return False
+
+    def merge_audio_video(self, video_path, audio_path, output_path):
+        """合并视频和音频"""
+        cmd = ['ffmpeg', '-i', video_path, '-i', audio_path, 
+               '-c:v', 'copy', '-c:a', 'aac', '-strict', 'experimental',
+               output_path, '-y']
+        try:
+            subprocess.run(cmd, check=True, capture_output=True)
+            return True
+        except subprocess.CalledProcessError:
+            print("音视频合并失败")
+            return False
+
+    def cleanup_temp_files(self):
+        """清理临时文件"""
+        temp_files = [self.temp_video_path, self.temp_audio_path]
+        for file in temp_files:
+            if os.path.exists(file):
+                try:
+                    os.remove(file)
+                except Exception as e:
+                    print(f"清理临时文件失败: {str(e)}")
 
     def adjust_image(self, frame):
         # 应用亮度和饱和度调整
@@ -81,14 +117,18 @@ class VideoProcessor(QObject):
         return self.apply_style(adjusted)
 
     def process_video(self, output_path='processed_video.mp4'):
-        self.processed_video_path = output_path  # 保存输出路径
+        # 保存输出路径
+        self.processed_video_path = output_path
+        
+        # 先处理视频到临时文件
         cap = cv2.VideoCapture(self.video_path)
         frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         current_frame = 0
         frame_width = int(cap.get(3))
         frame_height = int(cap.get(4))
+        fps = cap.get(cv2.CAP_PROP_FPS)
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(output_path, fourcc, 20.0, (frame_width, frame_height))
+        out = cv2.VideoWriter(self.temp_video_path, fourcc, fps, (frame_width, frame_height))
 
         while cap.isOpened():
             ret, frame = cap.read()
@@ -97,9 +137,8 @@ class VideoProcessor(QObject):
 
             processed_frame = self.process_frame(frame)
 
-            # 模拟进度更新
             current_frame += 1
-            progress = int((current_frame / frame_count) * 100)
+            progress = int((current_frame / frame_count) * 90)  # 视频处理占90%的进度
             self.progress_signal.emit(progress)
 
             # 发送预览帧
@@ -112,6 +151,25 @@ class VideoProcessor(QObject):
 
         cap.release()
         out.release()
+
+        # 提取音频
+        self.progress_signal.emit(92)  # 更新进度到92%
+        has_audio = self.extract_audio(self.video_path, self.temp_audio_path)
+        
+        # 合并音视频
+        self.progress_signal.emit(95)  # 更新进度到95%
+        if has_audio:
+            success = self.merge_audio_video(self.temp_video_path, self.temp_audio_path, output_path)
+        else:
+            # 如果没有音频，直接复制处理后的视频
+            import shutil
+            success = True
+            shutil.copy2(self.temp_video_path, output_path)
+
+        # 清理临时文件
+        self.cleanup_temp_files()
+        
+        self.progress_signal.emit(100)  # 完成
         print(f'视频已保存到 {output_path}')
         self.finished_signal.emit()
 
