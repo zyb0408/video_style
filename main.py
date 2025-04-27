@@ -212,16 +212,20 @@ class VideoStylizationApp(QMainWindow):
             'brightness': self.brightness_slider.value()
         }
         
-        self.video_processor = VideoProcessor(video_path, style, params)
-        self.processing_thread = VideoProcessingThread(self.video_processor)
+        try:
+            self.video_processor = VideoProcessor(video_path, style, params)
+            self.processing_thread = VideoProcessingThread(self.video_processor, self.output_video_path)
 
-        self.video_processor.progress_signal.connect(self.updateProgress)
-        self.video_processor.finished_signal.connect(self.processingFinished)
-        self.video_processor.preview_frame_signal.connect(self.showProcessedPreview)
+            self.video_processor.progress_signal.connect(self.updateProgress)
+            self.video_processor.finished_signal.connect(self.processingFinished)
+            self.video_processor.preview_frame_signal.connect(self.showProcessedPreview)
 
-        # 使用预设的输出路径
-        self.processing_thread.start()
-        self.video_processor.process_video(self.output_video_path)
+            # 启动处理线程
+            self.processing_thread.start()
+        except Exception as e:
+            QMessageBox.critical(self, '错误', f'处理视频时出错：\n{str(e)}')
+            self.style_selector.setEnabled(True)
+            self.process_button.setEnabled(True)
 
     def updateProgress(self, progress):
         self.progress_bar.setValue(progress)

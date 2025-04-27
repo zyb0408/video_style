@@ -5,6 +5,7 @@ import os
 import subprocess
 from PySide6.QtCore import QObject, Signal, QThread
 from PySide6.QtGui import QImage
+import time
 
 
 class VideoProcessor(QObject):
@@ -21,9 +22,10 @@ class VideoProcessor(QObject):
             'saturation': 0,
             'brightness': 0
         }
-        self.processed_video_path = None
-        self.temp_video_path = 'temp_processed_video.mp4'
-        self.temp_audio_path = 'temp_audio.aac'
+        # 使用时间戳创建唯一的临时文件名
+        timestamp = int(time.time())
+        self.temp_video_path = f'temp_video_{timestamp}.mp4'
+        self.temp_audio_path = f'temp_audio_{timestamp}.aac'
 
     def extract_audio(self, input_video, output_audio):
         """提取视频中的音频"""
@@ -116,86 +118,82 @@ class VideoProcessor(QObject):
         # 2. 再应用风格化效果
         return self.apply_style(adjusted)
 
-    def process_video(self, output_path='processed_video.mp4'):
-        # 保存输出路径
-        self.processed_video_path = output_path
-        
-        # 先处理视频到临时文件
-        cap = cv2.VideoCapture(self.video_path)
-        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        current_frame = 0
-        frame_width = int(cap.get(3))
-        frame_height = int(cap.get(4))
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(self.temp_video_path, fourcc, fps, (frame_width, frame_height))
+    def process_video(self, output_path):
+        """处理视频并直接保存到指定路径"""
+        try:
+            cap = cv2.VideoCapture(self.video_path)
+            frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            current_frame = 0
+            frame_width = int(cap.get(3))
+            frame_height = int(cap.get(4))
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            out = cv2.VideoWriter(self.temp_video_path, fourcc, fps, (frame_width, frame_height))
 
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
+            while cap.isOpened():
+                ret, frame = cap.read()
+                if not ret:
+                    break
 
-            processed_frame = self.process_frame(frame)
+                processed_frame = self.process_frame(frame)
 
-            current_frame += 1
-            progress = int((current_frame / frame_count) * 90)  # 视频处理占90%的进度
-            self.progress_signal.emit(progress)
+                current_frame += 1
+                progress = int((current_frame / frame_count) * 90)  # 视频处理占90%的进度
+                self.progress_signal.emit(progress)
 
-            # 发送预览帧
-            height, width, channel = processed_frame.shape
-            bytesPerLine = 3 * width
-            qImg = QImage(processed_frame.data, width, height, bytesPerLine, QImage.Format_RGB888).rgbSwapped()
-            self.preview_frame_signal.emit(qImg)
+                # 发送预览帧
+                height, width, channel = processed_frame.shape
+                bytesPerLine = 3 * width
+                qImg = QImage(processed_frame.data, width, height, bytesPerLine, QImage.Format_RGB888).rgbSwapped()
+                self.preview_frame_signal.emit(qImg)
 
-            out.write(processed_frame)
+                out.write(processed_frame)
 
-        cap.release()
-        out.release()
+            cap.release()
+            out.release()
 
-        # 提取音频
-        self.progress_signal.emit(92)  # 更新进度到92%
-        has_audio = self.extract_audio(self.video_path, self.temp_audio_path)
-        
-        # 合并音视频
-        self.progress_signal.emit(95)  # 更新进度到95%
-        if has_audio:
-            success = self.merge_audio_video(self.temp_video_path, self.temp_audio_path, output_path)
-        else:
-            # 如果没有音频，直接复制处理后的视频
-            import shutil
-            success = True
-            shutil.copy2(self.temp_video_path, output_path)
+            # 提取音频
+            self.progress_signal.emit(92)
+            has_audio = self.extract_audio(self.video_path, self.temp_audio_path)
+            
+            # 合并音视频
+            self.progress_signal.emit(95)
+            if has_audio:
+                success = self.merge_audio_video(self.temp_video_path, self.temp_audio_path, output_path)
+                if not success:
+                    # 如果合并失败，至少保留处理后的视频
+                    import shutil
+                    shutil.copy2(self.temp_video_path, output_path)
+            else:
+                # 如果没有音频，直接使用处理后的视频
+                import shutil
+                shutil.copy2(self.temp_video_path, output_path)
 
-        # 清理临时文件
-        self.cleanup_temp_files()
-        
-        self.progress_signal.emit(100)  # 完成
-        print(f'视频已保存到 {output_path}')
-        self.finished_signal.emit()
+            # 清理临时文件
+            self.cleanup_temp_files()
+            
+            self.progress_signal.emit(100)
+            print(f'视频已保存到 {output_path}')
+            self.finished_signal.emit()
+
+        except Exception as e:
+            print(f"处理视频时出错: {str(e)}")
+            self.cleanup_temp_files()
+            raise e
 
     def save_video(self, output_path):
-        """
-        将处理后的视频保存到新位置（如果需要）
-        """
-        if output_path == self.processed_video_path:
-            print(f'视频已经保存在 {output_path}')
-            return
-            
-        import shutil
-        try:
-            shutil.copy2(self.processed_video_path, output_path)
-            print(f'视频已复制到 {output_path}')
-        except Exception as e:
-            print(f'保存视频时出错: {str(e)}')
+        """此方法不再需要，保留为空以保持接口兼容"""
+        pass
 
 
 class VideoProcessingThread(QThread):
-    def __init__(self, video_processor):
+    def __init__(self, video_processor, output_path):
         super().__init__()
         self.video_processor = video_processor
+        self.output_path = output_path
 
     def run(self):
-        self.video_processor.process_video()
+        self.video_processor.process_video(self.output_path)
 
 
 def save_presets(presets, file_path='presets.json'):
