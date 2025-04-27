@@ -1,8 +1,11 @@
 import sys
-from PySide6.QtWidgets import QApplication, QMainWindow, QFileDialog, QComboBox, QVBoxLayout, QWidget, QProgressBar, QLabel, QPushButton
-from PySide6.QtCore import Qt, QThread
+from PySide6.QtWidgets import QApplication, QMainWindow, QFileDialog, QComboBox, QVBoxLayout, QWidget, QProgressBar, QLabel, QPushButton, QHBoxLayout
+from PySide6.QtCore import Qt, QThread, QUrl
+from PySide6.QtGui import QPixmap # 导入QPixmap
 from video_processor import VideoProcessor, VideoProcessingThread
 from PySide6.QtWidgets import QMessageBox
+from PySide6.QtMultimediaWidgets import QVideoWidget
+from PySide6.QtMultimedia import QMediaPlayer
 
 
 class VideoStylizationApp(QMainWindow):
@@ -11,6 +14,9 @@ class VideoStylizationApp(QMainWindow):
         self.initUI()
         self.initMenu()
         self.initStyleSelector()
+        self.original_media_player = QMediaPlayer()
+        self.processed_media_player = QMediaPlayer()
+        self.initPreviewWidgets()
         self.initProcessButton()
         self.initProgressBar()
         self.video_processor = None
@@ -36,6 +42,26 @@ class VideoStylizationApp(QMainWindow):
         layout.addWidget(self.style_selector, alignment=Qt.AlignTop)
         central_widget.setLayout(layout)
 
+    def initPreviewWidgets(self):
+        central_widget = self.centralWidget()
+        layout = central_widget.layout()
+
+        # 创建左右预览窗口
+        self.original_preview = QVideoWidget()
+        self.processed_preview = QVideoWidget()
+
+        # 设置媒体播放器与预览窗口关联
+        self.original_media_player.setVideoOutput(self.original_preview)
+        self.processed_media_player.setVideoOutput(self.processed_preview)
+
+        # 创建水平布局放置两个预览窗口
+        preview_layout = QHBoxLayout()
+        preview_layout.addWidget(self.original_preview)
+        preview_layout.addWidget(self.processed_preview)
+
+        # 将预览布局添加到主布局
+        layout.addLayout(preview_layout)
+
     def initProcessButton(self):
         self.process_button = QPushButton('开始处理视频', self)
         self.process_button.clicked.connect(self.onProcessButtonClicked)
@@ -57,6 +83,8 @@ class VideoStylizationApp(QMainWindow):
             file_path = file_dialog.selectedFiles()[0]
             print('选择的视频文件路径:', file_path)
             self.selected_video_path = file_path
+            self.original_media_player.setSource(QUrl.fromLocalFile(file_path))
+            self.original_media_player.play()
             self.process_button.setEnabled(True)
 
     def onProcessButtonClicked(self):
@@ -72,6 +100,7 @@ class VideoStylizationApp(QMainWindow):
 
         self.video_processor.progress_signal.connect(self.updateProgress)
         self.video_processor.finished_signal.connect(self.processingFinished)
+        self.video_processor.preview_frame_signal.connect(self.showProcessedPreview)
 
         self.processing_thread.start()
 
@@ -83,6 +112,11 @@ class VideoStylizationApp(QMainWindow):
         self.progress_bar.setValue(100)
         self.progress_label.setText('进度: 100%')
         print('视频处理完成')
+        # 选择保存路径
+        file_dialog = QFileDialog()
+        output_path, _ = file_dialog.getSaveFileName(self, '保存处理后的视频', '', '视频文件 (*.mp4)')
+        if output_path:
+            self.video_processor.save_video(output_path)
         QMessageBox.information(self, '处理完成', '视频处理已完成！')
         self.style_selector.setEnabled(True)
         self.process_button.setEnabled(True)
@@ -92,6 +126,18 @@ class VideoStylizationApp(QMainWindow):
             self.processing_thread.terminate()
             self.processing_thread.wait()
         event.accept()
+
+    def showProcessedPreview(self, frame):
+        # 转换 QImage 为 QPixmap
+        pixmap = QPixmap.fromImage(frame)
+        # 创建一个 QLabel 用于显示预览
+        if not hasattr(self, 'processed_preview_label'):
+            self.processed_preview_label = QLabel(self.processed_preview)
+            self.processed_preview_label.setAlignment(Qt.AlignCenter)
+        # 设置缩放后的 Pixmap 到 QLabel
+        scaled_pixmap = pixmap.scaled(self.processed_preview.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self.processed_preview_label.setPixmap(scaled_pixmap)
+        self.processed_preview_label.show()
 
 
 if __name__ == '__main__':
