@@ -213,11 +213,22 @@ class VideoProcessor(QObject):
             cap = cv2.VideoCapture(self.video_path)
             frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             current_frame = 0
-            frame_width = int(cap.get(3))
-            frame_height = int(cap.get(4))
+            
+            # 读取第一帧来确定输出视频的尺寸
+            ret, first_frame = cap.read()
+            if not ret:
+                raise Exception("无法读取视频文件")
+                
+            # 计算缩放后的尺寸
+            scale_factor = self.params.get('scale_factor', 1.0)
+            frame_width = int(first_frame.shape[1] * scale_factor)
+            frame_height = int(first_frame.shape[0] * scale_factor)
             fps = cap.get(cv2.CAP_PROP_FPS)
             
-            # 创建视频写入器
+            # 重置视频捕获器到开始位置
+            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            
+            # 创建视频写入器，使用缩放后的尺寸
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
             out = cv2.VideoWriter(self.temp_video_path, fourcc, fps, (frame_width, frame_height))
 
@@ -240,6 +251,9 @@ class VideoProcessor(QObject):
                         
                         # 写入处理后的帧
                         for processed_frame in processed_frames:
+                            # 确保帧的尺寸与输出视频尺寸匹配
+                            if processed_frame.shape[:2] != (frame_height, frame_width):
+                                processed_frame = cv2.resize(processed_frame, (frame_width, frame_height))
                             out.write(processed_frame)
                             
                         # 发送最后一帧作为预览
