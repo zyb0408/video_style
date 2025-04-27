@@ -1,11 +1,9 @@
 import sys
-from PySide6.QtWidgets import QApplication, QMainWindow, QFileDialog, QComboBox, QVBoxLayout, QWidget, QProgressBar, QLabel, QPushButton, QHBoxLayout, QSlider, QGroupBox, QFormLayout
-from PySide6.QtCore import Qt, QThread, QUrl
-from PySide6.QtGui import QPixmap # 导入QPixmap
+from PySide6.QtWidgets import (QApplication, QMainWindow, QFileDialog, QComboBox, 
+                             QVBoxLayout, QWidget, QProgressBar, QLabel, QPushButton, 
+                             QHBoxLayout, QSlider, QGroupBox, QFormLayout, QMessageBox)
+from PySide6.QtCore import Qt, QThread
 from video_processor import VideoProcessor, VideoProcessingThread
-from PySide6.QtWidgets import QMessageBox
-from PySide6.QtMultimediaWidgets import QVideoWidget
-from PySide6.QtMultimedia import QMediaPlayer
 
 
 class VideoStylizationApp(QMainWindow):
@@ -15,9 +13,6 @@ class VideoStylizationApp(QMainWindow):
         self.initMenu()
         self.initFileControls()  # 新增文件控制区域
         self.initStyleSelector()
-        self.original_media_player = QMediaPlayer()
-        self.processed_media_player = QMediaPlayer()
-        self.initPreviewWidgets()
         self.initParamsPanel()
         self.initProcessButton()
         self.initProgressBar()
@@ -83,26 +78,6 @@ class VideoStylizationApp(QMainWindow):
         
         style_group.setLayout(style_layout)
         layout.addWidget(style_group)
-
-    def initPreviewWidgets(self):
-        central_widget = self.centralWidget()
-        layout = central_widget.layout()
-
-        # 创建左右预览窗口
-        self.original_preview = QVideoWidget()
-        self.processed_preview = QVideoWidget()
-
-        # 设置媒体播放器与预览窗口关联
-        self.original_media_player.setVideoOutput(self.original_preview)
-        self.processed_media_player.setVideoOutput(self.processed_preview)
-
-        # 创建水平布局放置两个预览窗口
-        preview_layout = QHBoxLayout()
-        preview_layout.addWidget(self.original_preview)
-        preview_layout.addWidget(self.processed_preview)
-
-        # 将预览布局添加到主布局
-        layout.addLayout(preview_layout)
 
     def initParamsPanel(self):
         central_widget = self.centralWidget()
@@ -179,8 +154,6 @@ class VideoStylizationApp(QMainWindow):
             file_path = file_dialog.selectedFiles()[0]
             self.selected_video_path = file_path
             self.input_path_label.setText(file_path)
-            self.original_media_player.setSource(QUrl.fromLocalFile(file_path))
-            self.original_media_player.play()
             self.updateProcessButton()
 
     def updateProcessButton(self):
@@ -255,16 +228,8 @@ class VideoStylizationApp(QMainWindow):
             event.accept()
 
     def showProcessedPreview(self, frame):
-        # 转换 QImage 为 QPixmap
-        pixmap = QPixmap.fromImage(frame)
-        # 创建一个 QLabel 用于显示预览
-        if not hasattr(self, 'processed_preview_label'):
-            self.processed_preview_label = QLabel(self.processed_preview)
-            self.processed_preview_label.setAlignment(Qt.AlignCenter)
-        # 设置缩放后的 Pixmap 到 QLabel
-        scaled_pixmap = pixmap.scaled(self.processed_preview.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        self.processed_preview_label.setPixmap(scaled_pixmap)
-        self.processed_preview_label.show()
+        # 由于我们不再需要预览，这个方法可以保留为空
+        pass
 
 
 if __name__ == '__main__':
