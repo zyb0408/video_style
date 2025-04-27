@@ -13,6 +13,7 @@ class VideoStylizationApp(QMainWindow):
         super().__init__()
         self.initUI()
         self.initMenu()
+        self.initFileControls()  # 新增文件控制区域
         self.initStyleSelector()
         self.original_media_player = QMediaPlayer()
         self.processed_media_player = QMediaPlayer()
@@ -23,6 +24,7 @@ class VideoStylizationApp(QMainWindow):
         self.video_processor = None
         self.processing_thread = None
         self.selected_video_path = None
+        self.output_video_path = None
 
     def initUI(self):
         self.setWindowTitle('视频风格化GUI程序')
@@ -34,14 +36,53 @@ class VideoStylizationApp(QMainWindow):
         open_action = file_menu.addAction('打开视频')
         open_action.triggered.connect(self.openVideoFile)
 
-    def initStyleSelector(self):
+    def initFileControls(self):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         layout = QVBoxLayout()
+        
+        # 创建文件控制区域
+        file_group = QGroupBox("文件选择")
+        file_layout = QVBoxLayout()
+        
+        # 输入视频选择
+        input_layout = QHBoxLayout()
+        self.input_path_label = QLabel("未选择视频文件")
+        self.input_path_label.setStyleSheet("padding: 5px; background-color: #f0f0f0;")
+        select_button = QPushButton("选择视频文件")
+        select_button.clicked.connect(self.openVideoFile)
+        input_layout.addWidget(self.input_path_label, stretch=1)
+        input_layout.addWidget(select_button)
+        file_layout.addLayout(input_layout)
+        
+        # 输出路径选择
+        output_layout = QHBoxLayout()
+        self.output_path_label = QLabel("未设置输出路径")
+        self.output_path_label.setStyleSheet("padding: 5px; background-color: #f0f0f0;")
+        output_button = QPushButton("设置输出路径")
+        output_button.clicked.connect(self.setOutputPath)
+        output_layout.addWidget(self.output_path_label, stretch=1)
+        output_layout.addWidget(output_button)
+        file_layout.addLayout(output_layout)
+        
+        file_group.setLayout(file_layout)
+        layout.addWidget(file_group)
+        central_widget.setLayout(layout)
+
+    def initStyleSelector(self):
+        central_widget = self.centralWidget()
+        layout = central_widget.layout()
+        
+        # 创建风格选择组
+        style_group = QGroupBox("风格选择")
+        style_layout = QVBoxLayout()
+        
         self.style_selector = QComboBox()
         self.style_selector.addItems(['油画风格', '水彩风格', '卡通/动漫风格', '素描风格', '复古滤镜', '自定义风格'])
-        layout.addWidget(self.style_selector, alignment=Qt.AlignTop)
-        central_widget.setLayout(layout)
+        style_layout.addWidget(self.style_selector)
+        
+        style_group.setLayout(style_layout)
+        layout.addWidget(style_group)
 
     def initPreviewWidgets(self):
         central_widget = self.centralWidget()
@@ -118,19 +159,38 @@ class VideoStylizationApp(QMainWindow):
         self.statusBar().addPermanentWidget(self.progress_bar)
         self.statusBar().addPermanentWidget(self.progress_label)
 
+    def setOutputPath(self):
+        file_dialog = QFileDialog()
+        output_path, _ = file_dialog.getSaveFileName(
+            self, 
+            '设置输出视频路径', 
+            '', 
+            '视频文件 (*.mp4)'
+        )
+        if output_path:
+            self.output_video_path = output_path
+            self.output_path_label.setText(output_path)
+            self.updateProcessButton()
+
     def openVideoFile(self):
         file_dialog = QFileDialog()
         file_dialog.setNameFilter('视频文件 (*.mp4 *.avi *.mov)')
-        if file_dialog.exec(): 
+        if file_dialog.exec():
             file_path = file_dialog.selectedFiles()[0]
-            print('选择的视频文件路径:', file_path)
             self.selected_video_path = file_path
+            self.input_path_label.setText(file_path)
             self.original_media_player.setSource(QUrl.fromLocalFile(file_path))
             self.original_media_player.play()
-            self.process_button.setEnabled(True)
+            self.updateProcessButton()
+
+    def updateProcessButton(self):
+        # 只有当输入和输出路径都设置后才启用处理按钮
+        self.process_button.setEnabled(
+            bool(self.selected_video_path and self.output_video_path)
+        )
 
     def onProcessButtonClicked(self):
-        if self.selected_video_path:
+        if self.selected_video_path and self.output_video_path:
             self.startVideoProcessing(self.selected_video_path)
 
     def startVideoProcessing(self, video_path):
@@ -159,7 +219,9 @@ class VideoStylizationApp(QMainWindow):
         self.video_processor.finished_signal.connect(self.processingFinished)
         self.video_processor.preview_frame_signal.connect(self.showProcessedPreview)
 
+        # 使用预设的输出路径
         self.processing_thread.start()
+        self.video_processor.process_video(self.output_video_path)
 
     def updateProgress(self, progress):
         self.progress_bar.setValue(progress)
@@ -169,12 +231,7 @@ class VideoStylizationApp(QMainWindow):
         self.progress_bar.setValue(100)
         self.progress_label.setText('进度: 100%')
         print('视频处理完成')
-        # 选择保存路径
-        file_dialog = QFileDialog()
-        output_path, _ = file_dialog.getSaveFileName(self, '保存处理后的视频', '', '视频文件 (*.mp4)')
-        if output_path:
-            self.video_processor.save_video(output_path)
-            QMessageBox.information(self, '处理完成', f'视频已保存到：\n{output_path}')
+        QMessageBox.information(self, '处理完成', f'视频已保存到：\n{self.output_video_path}')
         self.style_selector.setEnabled(True)
         self.process_button.setEnabled(True)
 
