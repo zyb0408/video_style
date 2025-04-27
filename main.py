@@ -1,5 +1,5 @@
 import sys
-from PySide6.QtWidgets import QApplication, QMainWindow, QFileDialog, QComboBox, QVBoxLayout, QWidget, QProgressBar, QLabel, QPushButton, QHBoxLayout
+from PySide6.QtWidgets import QApplication, QMainWindow, QFileDialog, QComboBox, QVBoxLayout, QWidget, QProgressBar, QLabel, QPushButton, QHBoxLayout, QSlider, QGroupBox, QFormLayout
 from PySide6.QtCore import Qt, QThread, QUrl
 from PySide6.QtGui import QPixmap # 导入QPixmap
 from video_processor import VideoProcessor, VideoProcessingThread
@@ -17,6 +17,7 @@ class VideoStylizationApp(QMainWindow):
         self.original_media_player = QMediaPlayer()
         self.processed_media_player = QMediaPlayer()
         self.initPreviewWidgets()
+        self.initParamsPanel()
         self.initProcessButton()
         self.initProgressBar()
         self.video_processor = None
@@ -62,6 +63,47 @@ class VideoStylizationApp(QMainWindow):
         # 将预览布局添加到主布局
         layout.addLayout(preview_layout)
 
+    def initParamsPanel(self):
+        central_widget = self.centralWidget()
+        layout = central_widget.layout()
+        
+        # 创建参数调节组
+        params_group = QGroupBox("参数调节")
+        params_layout = QFormLayout()
+        
+        # 创建强度滑块
+        self.strength_slider = QSlider(Qt.Horizontal)
+        self.strength_slider.setRange(0, 100)
+        self.strength_slider.setValue(50)
+        self.strength_label = QLabel("50%")
+        self.strength_slider.valueChanged.connect(
+            lambda v: self.strength_label.setText(f"{v}%"))
+        params_layout.addRow("效果强度:", self.strength_slider)
+        params_layout.addRow("", self.strength_label)
+        
+        # 创建饱和度滑块
+        self.saturation_slider = QSlider(Qt.Horizontal)
+        self.saturation_slider.setRange(-100, 100)
+        self.saturation_slider.setValue(0)
+        self.saturation_label = QLabel("0")
+        self.saturation_slider.valueChanged.connect(
+            lambda v: self.saturation_label.setText(str(v)))
+        params_layout.addRow("饱和度:", self.saturation_slider)
+        params_layout.addRow("", self.saturation_label)
+        
+        # 创建亮度滑块
+        self.brightness_slider = QSlider(Qt.Horizontal)
+        self.brightness_slider.setRange(-100, 100)
+        self.brightness_slider.setValue(0)
+        self.brightness_label = QLabel("0")
+        self.brightness_slider.valueChanged.connect(
+            lambda v: self.brightness_label.setText(str(v)))
+        params_layout.addRow("亮度:", self.brightness_slider)
+        params_layout.addRow("", self.brightness_label)
+        
+        params_group.setLayout(params_layout)
+        layout.addWidget(params_group)
+
     def initProcessButton(self):
         self.process_button = QPushButton('开始处理视频', self)
         self.process_button.clicked.connect(self.onProcessButtonClicked)
@@ -95,7 +137,22 @@ class VideoStylizationApp(QMainWindow):
         self.style_selector.setEnabled(False)
         self.process_button.setEnabled(False)
         style = self.style_selector.currentText()
-        self.video_processor = VideoProcessor(video_path, style)
+        # 检查是否选择了支持的风格
+        supported_styles = ['油画风格', '水彩风格', '卡通/动漫风格', '素描风格', '复古滤镜', '自定义风格']
+        if style not in supported_styles:
+            QMessageBox.warning(self, '警告', '所选风格暂不支持，请重新选择。')
+            self.style_selector.setEnabled(True)
+            self.process_button.setEnabled(True)
+            return
+            
+        # 获取参数值
+        params = {
+            'strength': self.strength_slider.value(),
+            'saturation': self.saturation_slider.value(),
+            'brightness': self.brightness_slider.value()
+        }
+        
+        self.video_processor = VideoProcessor(video_path, style, params)
         self.processing_thread = VideoProcessingThread(self.video_processor)
 
         self.video_processor.progress_signal.connect(self.updateProgress)
@@ -117,15 +174,24 @@ class VideoStylizationApp(QMainWindow):
         output_path, _ = file_dialog.getSaveFileName(self, '保存处理后的视频', '', '视频文件 (*.mp4)')
         if output_path:
             self.video_processor.save_video(output_path)
-        QMessageBox.information(self, '处理完成', '视频处理已完成！')
+            QMessageBox.information(self, '处理完成', f'视频已保存到：\n{output_path}')
         self.style_selector.setEnabled(True)
         self.process_button.setEnabled(True)
 
     def closeEvent(self, event):
         if self.processing_thread and self.processing_thread.isRunning():
-            self.processing_thread.terminate()
-            self.processing_thread.wait()
-        event.accept()
+            reply = QMessageBox.question(self, '确认退出', 
+                                       '视频正在处理中，确定要退出吗？',
+                                       QMessageBox.Yes | QMessageBox.No,
+                                       QMessageBox.No)
+            if reply == QMessageBox.Yes:
+                self.processing_thread.terminate()
+                self.processing_thread.wait()
+                event.accept()
+            else:
+                event.ignore()
+        else:
+            event.accept()
 
     def showProcessedPreview(self, frame):
         # 转换 QImage 为 QPixmap

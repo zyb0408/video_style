@@ -1,5 +1,6 @@
 import cv2
 import json
+import numpy as np
 from PySide6.QtCore import QObject, Signal, QThread
 from PySide6.QtGui import QImage
 
@@ -9,29 +10,92 @@ class VideoProcessor(QObject):
     finished_signal = Signal()
     preview_frame_signal = Signal(QImage)
 
-    def __init__(self, video_path, style):
+    def __init__(self, video_path, style, params=None):
         super().__init__()
         self.video_path = video_path
         self.style = style
+        self.params = params or {
+            'strength': 50,
+            'saturation': 0,
+            'brightness': 0
+        }
+        self.processed_video_path = None  # 添加属性保存处理后的视频路径
 
-    def process_video(self):
-        output_path = 'processed_video.mp4'
+    def adjust_image(self, frame):
+        # 应用亮度和饱和度调整
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV).astype(np.float32)
+        
+        # 调整饱和度
+        saturation_factor = 1 + (self.params['saturation'] / 100)
+        hsv[:, :, 1] = hsv[:, :, 1] * saturation_factor
+        hsv[:, :, 1] = np.clip(hsv[:, :, 1], 0, 255)
+        
+        # 调整亮度
+        brightness_delta = int(self.params['brightness'] * 2.55)  # 将 -100~100 映射到 -255~255
+        hsv[:, :, 2] = hsv[:, :, 2] + brightness_delta
+        hsv[:, :, 2] = np.clip(hsv[:, :, 2], 0, 255)
+        
+        return cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
+
+    def apply_style(self, frame):
+        strength = self.params['strength'] / 100.0  # 将 0-100 转换为 0-1
+        
+        if self.style == '油画风格':
+            sigma_s = int(60 * (1 + strength))
+            sigma_r = 0.6 * strength
+            styled = cv2.stylization(frame, sigma_s=sigma_s, sigma_r=sigma_r)
+        elif self.style == '水彩风格':
+            sigma_s = int(100 * (1 + strength))
+            sigma_r = 0.3 * strength
+            styled = cv2.stylization(frame, sigma_s=sigma_s, sigma_r=sigma_r)
+        elif self.style == '卡通/动漫风格':
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            kernel_size = int(9 * (1 + strength))
+            if kernel_size % 2 == 0:
+                kernel_size += 1
+            edges = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_MEAN_C, 
+                                        cv2.THRESH_BINARY, kernel_size, kernel_size)
+            color = cv2.bilateralFilter(frame, kernel_size, 300, 300)
+            styled = cv2.bitwise_and(color, color, mask=edges)
+        elif self.style == '素描风格':
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            inverted = 255 - gray
+            kernel_size = int(21 * (1 + strength))
+            if kernel_size % 2 == 0:
+                kernel_size += 1
+            blurred = cv2.GaussianBlur(inverted, (kernel_size, kernel_size), 0)
+            inverted_blurred = 255 - blurred
+            styled = cv2.divide(gray, inverted_blurred, scale=256.0)
+        else:
+            styled = frame
+
+        if len(styled.shape) == 2:  # 如果是灰度图像，转换为BGR
+            styled = cv2.cvtColor(styled, cv2.COLOR_GRAY2BGR)
+            
+        return styled
+
+    def process_frame(self, frame):
+        # 1. 先应用基础调整（亮度和饱和度）
+        adjusted = self.adjust_image(frame)
+        # 2. 再应用风格化效果
+        return self.apply_style(adjusted)
+
+    def process_video(self, output_path='processed_video.mp4'):
+        self.processed_video_path = output_path  # 保存输出路径
         cap = cv2.VideoCapture(self.video_path)
         frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         current_frame = 0
+        frame_width = int(cap.get(3))
+        frame_height = int(cap.get(4))
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(output_path, fourcc, 20.0, (frame_width, frame_height))
 
         while cap.isOpened():
             ret, frame = cap.read()
             if not ret:
                 break
 
-            # 这里可以添加不同风格的处理逻辑
-            if self.style == '油画风格':
-                processed_frame = cv2.stylization(frame, sigma_s=60, sigma_r=0.6)
-            elif self.style == '水彩风格':
-                processed_frame = cv2.stylization(frame, sigma_s=100, sigma_r=0.3)
-            else:
-                processed_frame = frame
+            processed_frame = self.process_frame(frame)
 
             # 模拟进度更新
             current_frame += 1
@@ -44,55 +108,27 @@ class VideoProcessor(QObject):
             qImg = QImage(processed_frame.data, width, height, bytesPerLine, QImage.Format_RGB888).rgbSwapped()
             self.preview_frame_signal.emit(qImg)
 
-            # 这里可以添加保存处理后视频的逻辑
-            cap = cv2.VideoCapture(self.video_path)
-            frame_width = int(cap.get(3))
-            frame_height = int(cap.get(4))
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            out = cv2.VideoWriter(output_path, fourcc, 20.0, (frame_width, frame_height))
-            while cap.isOpened(): 
-                ret, frame = cap.read()
-                if ret:
-                    # 这里添加风格处理逻辑
-                    out.write(frame)
-                else:
-                    break
-        output_path = 'processed_video.mp4'
-        self.save_video(output_path)
+            out.write(processed_frame)
 
         cap.release()
         out.release()
         print(f'视频已保存到 {output_path}')
-
-        # 保存处理后的视频
-        output_path = 'processed_video.mp4'
-        self.save_video(output_path)
-
-        cap.release()
         self.finished_signal.emit()
 
     def save_video(self, output_path):
-        cap = cv2.VideoCapture(self.video_path)
-        frame_width = int(cap.get(3))
-        frame_height = int(cap.get(4))
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(output_path, fourcc, 20.0, (frame_width, frame_height))
-
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if ret:
-                # 这里添加风格处理逻辑
-                if self.style == '油画风格':
-                    frame = cv2.stylization(frame, sigma_s=60, sigma_r=0.6)
-                elif self.style == '水彩风格':
-                    frame = cv2.stylization(frame, sigma_s=100, sigma_r=0.3)
-                out.write(frame)
-            else:
-                break
-
-        cap.release()
-        out.release()
-        print(f'视频已保存到 {output_path}')
+        """
+        将处理后的视频保存到新位置（如果需要）
+        """
+        if output_path == self.processed_video_path:
+            print(f'视频已经保存在 {output_path}')
+            return
+            
+        import shutil
+        try:
+            shutil.copy2(self.processed_video_path, output_path)
+            print(f'视频已复制到 {output_path}')
+        except Exception as e:
+            print(f'保存视频时出错: {str(e)}')
 
 
 class VideoProcessingThread(QThread):
