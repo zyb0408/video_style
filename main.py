@@ -116,6 +116,16 @@ class VideoStylizationApp(QMainWindow):
             lambda v: self.brightness_label.setText(str(v)))
         params_layout.addRow("亮度:", self.brightness_slider)
         params_layout.addRow("", self.brightness_label)
+
+        # 创建缩放比例滑块
+        self.scale_slider = QSlider(Qt.Horizontal)
+        self.scale_slider.setRange(25, 100)  # 25% 到 100%
+        self.scale_slider.setValue(100)
+        self.scale_label = QLabel("100%")
+        self.scale_slider.valueChanged.connect(
+            lambda v: self.scale_label.setText(f"{v}%"))
+        params_layout.addRow("视频尺寸:", self.scale_slider)
+        params_layout.addRow("", self.scale_label)
         
         params_group.setLayout(params_layout)
         layout.addWidget(params_group)
@@ -182,7 +192,8 @@ class VideoStylizationApp(QMainWindow):
         params = {
             'strength': self.strength_slider.value(),
             'saturation': self.saturation_slider.value(),
-            'brightness': self.brightness_slider.value()
+            'brightness': self.brightness_slider.value(),
+            'scale_factor': self.scale_slider.value() / 100.0  # 转换为 0.25 到 1.0
         }
         
         try:
