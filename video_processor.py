@@ -181,6 +181,7 @@ class VideoProcessor(QObject):
             return cv2.bitwise_and(color, color, mask=edges)
             
         elif self.style == '素描风格':
+            # 获取原始图像的灰度版本
             if self.use_gpu:
                 gpu_frame = cv2.cuda_GpuMat()
                 gpu_frame.upload(frame)
@@ -188,12 +189,16 @@ class VideoProcessor(QObject):
                 gray = gpu_gray.download()
             else:
                 gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                
-            inverted = 255 - gray
+
+            # 创建素描效果
             kernel_size = int(21 * (1 + strength))
             if kernel_size % 2 == 0:
                 kernel_size += 1
-                
+
+            # 反转图像
+            inverted = 255 - gray
+            
+            # 创建高斯模糊效果
             if self.use_gpu:
                 gpu_inverted = cv2.cuda_GpuMat()
                 gpu_inverted.upload(inverted)
@@ -201,9 +206,24 @@ class VideoProcessor(QObject):
                 blurred = gpu_blurred.download()
             else:
                 blurred = cv2.GaussianBlur(inverted, (kernel_size, kernel_size), 0)
-                
+
+            # 再次反转并进行除法运算
             inverted_blurred = 255 - blurred
-            return cv2.divide(gray, inverted_blurred, scale=256.0)
+            sketch = cv2.divide(gray, inverted_blurred, scale=256.0)
+
+            # 增强对比度
+            sketch = cv2.normalize(sketch, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
+            
+            # 将素描效果转换为3通道图像
+            sketch_bgr = cv2.cvtColor(sketch.astype(np.uint8), cv2.COLOR_GRAY2BGR)
+            
+            # 可选：保持一些原始颜色信息
+            if strength < 0.8:  # 当强度较低时，混合一些原始颜色
+                alpha = 1 - strength  # 原始颜色的权重
+                sketch_colored = cv2.addWeighted(frame, alpha, sketch_bgr, 1 - alpha, 0)
+                return sketch_colored
+            
+            return sketch_bgr
         else:
             return frame
 
